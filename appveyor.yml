@@ -1,11 +1,6 @@
-image: Visual Studio 2017
+image: Visual Studio 2019
 init:
   - git config --global core.autocrlf input
-
-install:
-  - ps: Invoke-WebRequest 'https://dot.net/v1/dotnet-install.ps1' -OutFile "${env:TEMP}\dotnet-install.ps1"
-  - ps: $sdkVersionFromGlobalJson = (Get-Content -Raw -Path 'global.json' | Out-String | ConvertFrom-Json).sdk.version
-  - ps: '& "${env:TEMP}\dotnet-install.ps1" -Version $sdkVersionFromGlobalJson'
 
 build_script:
   - cmd: build.cmd BuildPackage
@@ -43,7 +38,7 @@ matrix:
     - PAKET_TESTSUITE_FLAKYTESTS: true
 
 on_finish:
-  - ps: >-
+  - pwsh: >-
       $wc = New-Object 'System.Net.WebClient';
       $testResults = @(
         '.\tests_result\net\Paket.Tests\TestResult.trx'
@@ -53,7 +48,6 @@ on_finish:
         '.\tests_result\netcore\Paket.IntegrationTests\TestResult.trx'
         '.\tests_result\netcore\Paket.Bootstrapper.Tests\TestResult.trx'
       )
-  - ps: >-
       Foreach ($path in $testResults) {
         If (Test-Path $path) {
           $wc.UploadFile("https://ci.appveyor.com/api/testresults/mstest/$($env:APPVEYOR_JOB_ID)", (Resolve-Path $path))
