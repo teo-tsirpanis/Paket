@@ -48,6 +48,7 @@ on_finish:
         '.\tests_result\netcore\Paket.IntegrationTests\TestResult.trx'
         '.\tests_result\netcore\Paket.Bootstrapper.Tests\TestResult.trx'
       )
+  - pwsh: >-
       Foreach ($path in $testResults) {
         If (Test-Path $path) {
           $wc.UploadFile("https://ci.appveyor.com/api/testresults/mstest/$($env:APPVEYOR_JOB_ID)", (Resolve-Path $path))
