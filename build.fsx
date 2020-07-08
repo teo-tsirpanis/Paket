@@ -13,11 +13,9 @@ open Fake.IO.FileSystemOperators
 open Fake.IO.Globbing.Operators
 open Fake.Tools.Git
 open System
-open System.Diagnostics
 open System.IO
 open System.Security.Cryptography
 open System.Xml.Linq
-
 // The name of the project
 // (used by attributes in AssemblyInfo, name of a NuGet package and directory in 'src')
 let project = "Paket"
@@ -203,7 +201,7 @@ Target.create "RunTests" (fun _ ->
         let logFilePath = (sprintf "tests_result/%s/%s/TestResult.trx" fw proj) |> Path.GetFullPath
         let additionalArgs = [
             "--filter"
-            if testSuiteFilterFlakyTests then "TestCategory=Flaky" else "TestCategory!=Flaky"
+            (if testSuiteFilterFlakyTests then "TestCategory=Flaky" else "TestCategory!=Flaky")
             sprintf "--logger:trx;LogFileName=%s" logFilePath
             "--no-build"
             "-v"; "n"
@@ -306,17 +304,17 @@ Target.create "SignAssemblies" (fun _ ->
         ++ "bin_bootstrapper/**/*.exe"
         |> Seq.cache
 
-    if Seq.length filesToSign < 3 then failwith "Didn't find files to sign"
+    if Seq.length filesToSign < 3 then failwith "Didn't find enough files to sign"
 
     filesToSign
-        |> Seq.iter (fun executable ->
-            let signtool = Environment.CurrentDirectory @@ "tools" @@ "SignTool" @@ "signtool.exe"
-            let args = ["sign"; "/f"; pfx; "/t:"; "http://timestamp.comodoca.com/authenticode"; executable]
-            let result =
-                CreateProcess.fromRawCommand signtool args
-                |> Proc.run
-            if result.ExitCode <> 0 then
-                failwithf "Error during signing %s with %s" executable pfx)
+    |> Seq.iter (fun executable ->
+        let signtool = Environment.CurrentDirectory @@ "tools" @@ "SignTool" @@ "signtool.exe"
+        let args = ["sign"; "/f"; pfx; "/t:"; "http://timestamp.comodoca.com/authenticode"; executable]
+        let result =
+            CreateProcess.fromRawCommand signtool args
+            |> Proc.run
+        if result.ExitCode <> 0 then
+            failwithf "Error during signing %s with %s" executable pfx)
 )
 
 Target.create "CalculateDownloadHash" (fun _ ->
@@ -394,7 +392,7 @@ Target.create "PublishNuGet" (fun _ ->
     Paket.push (fun p ->
         { p with
             ToolPath = "bin/merged/paket.exe"
-            ApiKey = Environment.environVar "NugetKey"
+            ApiKey = Environment.environVarOrDefault "NugetKey" ""
             WorkingDir = tempDir })
 )
 
@@ -405,17 +403,20 @@ let disableDocs = false // https://github.com/fsprojects/FSharp.Formatting/issue
 
 let fakePath = __SOURCE_DIRECTORY__ @@ "packages" @@ "build" @@ "FAKE" @@ "tools" @@ "FAKE.exe"
 let fakeStartInfo fsiargs script workingDirectory args environmentVars =
-    (fun (info: System.Diagnostics.ProcessStartInfo) ->
-        info.FileName <- fakePath
-        info.Arguments <- sprintf "%s --fsiargs %s -d:FAKE \"%s\"" args fsiargs script
-        info.WorkingDirectory <- workingDirectory
-        Seq.iter info.EnvironmentVariables.set_Item environmentVars)
+    let args = seq {
+        yield! args
+        yield "--fsiargs"
+        yield! fsiargs
+        yield "-d:FAKE"
+        yield script
+    }
+    CreateProcess.fromRawCommand fakePath args
+    |> CreateProcess.withWorkingDirectory workingDirectory
+    |> CreateProcess.withEnvironment environmentVars
 
 /// Run the given startinfo by printing the output (live)
-let executeWithOutput configStartInfo =
-    let si = ProcessStartInfo()
-    configStartInfo si
-    let result = CreateProcess.ofStartInfo si |> Proc.run
+let executeWithOutput cp =
+    let result = Proc.run cp
     result.ExitCode
 
 /// Helper to fail when the exitcode is <> 0
@@ -436,12 +437,11 @@ let execute fail traceMsg failMessage configStartInfo =
 Target.create "GenerateReferenceDocs" (fun _ ->
     if disableDocs then () else
     let args = ["--define:RELEASE"; "--define:REFERENCE"]
-    let argLine = System.String.Join(" ", args)
     execute
       true
       (sprintf "Building reference documentation, this could take some time, please wait...")
       "generating reference documentation failed"
-      (fakeStartInfo argLine "generate.fsx" "docs/tools" "" [])
+      (fakeStartInfo args "generate.fsx" "docs/tools" [] [])
 )
 
 let generateHelp' includeCommands fail debug =
@@ -449,12 +449,11 @@ let generateHelp' includeCommands fail debug =
         [ if not debug then yield "--define:RELEASE"
           if includeCommands then yield "--define:COMMANDS"
           yield "--define:HELP"]
-    let argLine = System.String.Join(" ", args)
     execute
       fail
       (sprintf "Building documentation (%A), this could take some time, please wait..." includeCommands)
       "generating documentation failed"
-      (fakeStartInfo argLine "generate.fsx" "docs/tools" "" [])
+      (fakeStartInfo args "generate.fsx" "docs/tools" [] [])
 
     Shell.cleanDir "docs/output/commands"
 
@@ -509,21 +508,17 @@ open Octokit
 
 Target.create "ReleaseGitHub" (fun _ ->
     let user =
-        match Environment.environVar "github_user" with
-        | s when not (String.IsNullOrWhiteSpace s) -> s
-        | _ ->
+        match Environment.environVarOrNone "github_user" with
+        | Some s -> s
+        | None ->
             eprintfn "Please update your release script to set 'github_user'!"
-            match Environment.environVar "github-user" with
-            | s when not (String.IsNullOrWhiteSpace s) -> s
-            | _ -> UserInput.getUserInput "Username: "
+            UserInput.getUserInput "Username: "
     let pw =
-        match Environment.environVar "github_password" with
-        | s when not (String.IsNullOrWhiteSpace s) -> s
-        | _ ->
+        match Environment.environVarOrNone "github_password" with
+        | Some s -> s
+        | None ->
             eprintfn "Please update your release script to set 'github_password'!"
-            match Environment.environVar "github_pw", Environment.environVar "github-pw" with
-            | s, _ | _, s when not (String.IsNullOrWhiteSpace s) -> s
-            | _ -> UserInput.getUserPassword "Password: "
+            UserInput.getUserPassword "Password: "
     let remote =
         CommandHelper.getGitResult "" "remote -v"
         |> Seq.filter (fun (s: string) -> s.EndsWith("(push)"))
@@ -558,12 +553,11 @@ Target.create "BuildPackage" ignore
 // --------------------------------------------------------------------------------------
 // Run all targets by default. Invoke 'build <Target>' to override
 
-let hasBuildParam buildParams =
+let hasBuildParams buildParams =
     buildParams
     |> List.map Environment.hasEnvironVar
     |> List.exists id
-let unlessBuildParams buildParams = not (hasBuildParam buildParams)
-
+let unlessBuildParams buildParams = not (hasBuildParams buildParams)
 Target.create "All" ignore
 
 let isMono = Environment.isMono
