@@ -23,8 +23,8 @@
     <EmbeddedResource Include="embedded\Paket.Restore.targets">
       <LogicalName>Paket.Restore.targets</LogicalName>
     </EmbeddedResource>
-    <Compile Include="Common\AssemblyInfo.fs" />
-    <Compile Include="Common\CustomAssemblyInfo.fs" />
+    <Compile Include="AssemblyInfo.fs" />
+    <Compile Include="Common\InternalsVisibleTo.fs" />
     <Compile Include="..\..\paket-files\fsprojects\FSharp.TypeProviders.SDK\src\AssemblyReader.fs">
       <Paket>True</Paket>
       <Link>Common/AssemblyReader.fs</Link>
