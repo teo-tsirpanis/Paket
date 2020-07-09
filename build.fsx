@@ -1,10 +1,20 @@
 
 System.IO.Directory.SetCurrentDirectory __SOURCE_DIRECTORY__
 
-#r @"packages/build/FAKE/tools/FakeLib.dll"
-#r "System.IO.Compression.FileSystem"
-#r "System.Xml.Linq"
+#r "paket:
+nuget Fake.Api.GitHub
+nuget Fake.Core.ReleaseNotes
+nuget Fake.Core.Target
+nuget Fake.Core.UserInput
+nuget Fake.IO.FileSystem
+nuget Fake.DotNet.AssemblyInfoFile
+nuget Fake.DotNet.Cli
+nuget Fake.DotNet.Paket
+nuget Fake.Tools.Git"
 
+#load "./.fake/build.fsx/intellisense.fsx"
+
+open Fake.Api
 open Fake.Core
 open Fake.Core.TargetOperators
 open Fake.DotNet
@@ -16,6 +26,8 @@ open System
 open System.IO
 open System.Security.Cryptography
 open System.Xml.Linq
+
+
 // The name of the project
 // (used by attributes in AssemblyInfo, name of a NuGet package and directory in 'src')
 let project = "Paket"
@@ -403,11 +415,11 @@ let disableDocs = false // https://github.com/fsprojects/FSharp.Formatting/issue
 let fakePath = __SOURCE_DIRECTORY__ @@ "packages" @@ "build" @@ "FAKE" @@ "tools" @@ "FAKE.exe"
 let fakeStartInfo fsiargs script workingDirectory args environmentVars =
     let args = seq {
+        yield script
         yield! args
         yield "--fsiargs"
         yield! fsiargs
         yield "-d:FAKE"
-        yield script
     }
     CreateProcess.fromRawCommand fakePath args
     |> CreateProcess.withWorkingDirectory workingDirectory
@@ -502,9 +514,6 @@ Target.create "ReleaseDocs" (fun _ ->
     Branches.push tempDocsDir
 )
 
-#load "paket-files/build/fsharp/FAKE/modules/Octokit/Octokit.fsx"
-open Octokit
-
 Target.create "ReleaseGitHub" (fun _ ->
     let user =
         match Environment.environVarOrNone "github_user" with
@@ -534,15 +543,15 @@ Target.create "ReleaseGitHub" (fun _ ->
     Trace.tracefn "Creating gihub release"
 
     // release on github
-    createClient user pw
-    |> createDraft gitOwner gitName release.NugetVersion (release.SemVer.PreRelease <> None) release.Notes
-    |> uploadFile "./bin/merged/paket.exe"
-    |> uploadFile "./bin/merged/paket-sha256.txt"
-    |> uploadFile "./bin_bootstrapper/net461/paket.bootstrapper.exe"
-    |> uploadFile ".paket/paket.targets"
-    |> uploadFile ".paket/Paket.Restore.targets"
-    |> uploadFile (tempDir </> sprintf "Paket.%s.nupkg" (release.NugetVersion))
-    |> releaseDraft
+    GitHub.createClient user pw
+    |> GitHub.draftNewRelease gitOwner gitName release.NugetVersion (release.SemVer.PreRelease <> None) release.Notes
+    |> GitHub.uploadFile "./bin/merged/paket.exe"
+    |> GitHub.uploadFile "./bin/merged/paket-sha256.txt"
+    |> GitHub.uploadFile "./bin_bootstrapper/net461/paket.bootstrapper.exe"
+    |> GitHub.uploadFile ".paket/paket.targets"
+    |> GitHub.uploadFile ".paket/Paket.Restore.targets"
+    |> GitHub.uploadFile (tempDir </> sprintf "Paket.%s.nupkg" (release.NugetVersion))
+    |> GitHub.publishDraft
     |> Async.RunSynchronously
 )
 
@@ -560,7 +569,7 @@ let unlessBuildParams buildParams = not (hasBuildParams buildParams)
 Target.create "All" ignore
 
 let isMono = Environment.isMono
-let isLocalBuild = BuildServer.isLocalBuild
+let isLocalBuild = false // BuildServer.isLocalBuild
 let skipDocs = Environment.hasEnvironVar "SkipDocs"
 
 "Clean"
