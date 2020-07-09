@@ -37,10 +37,6 @@ let tags = "nuget, bundler, F#"
 // File system information
 let solutionFile  = "Paket.sln"
 
-// Pattern specifying assemblies to be tested using NUnit
-let testAssemblies = "tests/**/bin/Release/net461/*Tests*.dll"
-let integrationTestAssemblies = "integrationtests/Paket.IntegrationTests/bin/Release/net461/*Tests*.dll"
-
 // Git configuration (used for publishing documentation in gh-pages branch)
 // The profile where the project is posted
 let gitOwner = "fsprojects"
@@ -52,19 +48,21 @@ let gitName = "Paket"
 // The url for the raw files hosted
 let gitRaw = Environment.environVarOrDefault "gitRaw" "https://raw.github.com/fsprojects"
 
-let dotnetcliVersion = DotNet.getSDKVersionFromGlobalJson()
-
 let dotnetExePath = "dotnet"
 
+let buildFrameworkFx = "net461"
+let buildFrameworkCore = "netcoreapp2.1"
 let buildDir = "bin"
-let buildDirNet461 = buildDir @@ "net461"
-let buildDirNetCore = buildDir @@ "netcoreapp2.1"
+let buildDirNet461 = buildDir @@ buildFrameworkFx
+let buildDirNetCore = buildDir @@ buildFrameworkCore
 let buildDirBootstrapper = "bin_bootstrapper"
-let buildDirBootstrapperNet461 = buildDirBootstrapper @@ "net461"
-let buildDirBootstrapperNetCore = buildDirBootstrapper @@ "netcoreapp2.1"
+let buildDirBootstrapperNet461 = buildDirBootstrapper @@ buildFrameworkFx
+let buildDirBootstrapperNetCore = buildDirBootstrapper @@ buildFrameworkCore
 let tempDir = "temp"
 let buildMergedDir = buildDir @@ "merged"
 let paketFile = buildMergedDir @@ "paket.exe"
+let testFrameworkFx = "net461"
+let testFrameworkCore = "netcoreapp3.0"
 
 // Read additional information from the release notes document
 let releaseNotesData =
@@ -166,25 +164,25 @@ Target.create "Restore" (fun _ ->
 Target.create "Publish" (fun _ ->
     DotNet.publish (fun c ->
         { c with
-            Framework = Some "net461"
+            Framework = Some buildFrameworkFx
             OutputPath = Some <| buildDirNet461
         }) "src/Paket"
 
     DotNet.publish (fun c ->
         { c with
-            Framework = Some "netcoreapp2.1"
+            Framework = Some buildFrameworkCore
             OutputPath = Some<| buildDirNetCore
         }) "src/Paket"
 
     DotNet.publish (fun c ->
         { c with
-            Framework = Some "net461"
+            Framework = Some buildFrameworkFx
             OutputPath = Some <| buildDirBootstrapperNet461
         }) "src/Paket.Bootstrapper"
 
     DotNet.publish (fun c ->
         { c with
-            Framework = Some "netcoreapp2.1"
+            Framework = Some buildFrameworkCore
             OutputPath = Some <| buildDirBootstrapperNetCore
         }) "src/Paket.Bootstrapper"
 )
@@ -203,18 +201,19 @@ Target.create "RunTests" (fun _ ->
             "--filter"
             (if testSuiteFilterFlakyTests then "TestCategory=Flaky" else "TestCategory!=Flaky")
             sprintf "--logger:trx;LogFileName=%s" logFilePath
-            "--no-build"
-            "-v"; "n"
+            "-v"
+            "n"
         ]
 
         DotNet.test (DotNet.Options.withAdditionalArgs additionalArgs >> fun c ->
-            { c with Framework = Some tfm}) "tests/Paket.Tests/Paket.Tests.fsproj"
+            { c with Framework = Some tfm; Configuration = DotNet.BuildConfiguration.Release; NoBuild = true})
+            "tests/Paket.Tests/Paket.Tests.fsproj"
 
-    runTest "net" "Paket.Tests" "net461"
-    runTest "netcore" "Paket.Tests" "netcoreapp3.0"
+    runTest "net" "Paket.Tests" testFrameworkFx
+    runTest "netcore" "Paket.Tests" testFrameworkCore
 
-    runTest "net" "Paket.Bootstrapper.Tests" "net461"
-    runTest "netcore" "Paket.Bootstrapper.Tests" "netcoreapp3.0"
+    runTest "net" "Paket.Bootstrapper.Tests" testFrameworkFx
+    runTest "netcore" "Paket.Bootstrapper.Tests" testFrameworkCore
 )
 
 Target.create "QuickTest" (fun _ ->
@@ -282,10 +281,10 @@ let runIntegrationTests fx fxDir =
             Framework = Some fx
         }) "integrationtests/Paket.IntegrationTests/Paket.IntegrationTests.fsproj"
 
-Target.create "RunIntegrationTestsNet" (fun _ -> runIntegrationTests "net" "net461")
+Target.create "RunIntegrationTestsNet" (fun _ -> runIntegrationTests testFrameworkFx "net")
 "Clean" ==> "Publish" ==> "RunIntegrationTestsNet"
 
-Target.create "RunIntegrationTestsNetCore" (fun _ -> runIntegrationTests "netcore" "netcoreapp3.0")
+Target.create "RunIntegrationTestsNetCore" (fun _ -> runIntegrationTests testFrameworkCore "netcore")
 "Clean" ==> "Publish" ==> "RunIntegrationTestsNetCore"
 
 let pfx = "code-sign.pfx"
@@ -302,12 +301,12 @@ Target.create "SignAssemblies" (fun _ ->
         !! "bin/**/*.exe"
         ++ "bin/**/Paket.Core.dll"
         ++ "bin_bootstrapper/**/*.exe"
-        |> Seq.cache
+        |> Array.ofSeq
 
-    if Seq.length filesToSign < 3 then failwith "Didn't find enough files to sign"
+    if filesToSign.Length < 3 then failwith "Didn't find enough files to sign"
 
     filesToSign
-    |> Seq.iter (fun executable ->
+    |> Array.iter (fun executable ->
         let signtool = Environment.CurrentDirectory @@ "tools" @@ "SignTool" @@ "signtool.exe"
         let args = ["sign"; "/f"; pfx; "/t:"; "http://timestamp.comodoca.com/authenticode"; executable]
         let result =
@@ -332,7 +331,7 @@ Target.create "AddIconToExe" (fun _ ->
 
     // use resourcehacker to add the icon
     let rhPath = "paket-files" @@ "build" @@ "enricosada" @@ "add_icon_to_exe" @@ "rh" @@ "ResourceHacker.exe"
-    let args = ["-open"; paketFile; "-save"; paketFile; "-action addskip -res"; paketExeIcon; "-mask ICONGROUP,MAINICON"]
+    let args = ["-open"; paketFile; "-save"; paketFile; "-action"; "addskip"; "-res"; paketExeIcon; "-mask"; "ICONGROUP,MAINICON"]
 
     let result =
         CreateProcess.fromRawCommand rhPath args

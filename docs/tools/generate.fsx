@@ -53,12 +53,12 @@ let info =
 #I "../../packages/build/FAKE/tools/"
 #r "NuGet.Core.dll"
 #r "FakeLib.dll"
-open Fake
-open System.IO
-open Fake.FileHelper
-open FSharp.Literate
-open FSharp.MetadataFormat
+open Fake.Core
+open Fake.IO
+open Fake.IO.FileSystemOperators
+open Fake.IO.Globbing.Operators
 open FSharp.Formatting.Razor
+open System.Collections.Generic
 
 // Paths with template/source/output locations
 let bin        = __SOURCE_DIRECTORY__ @@ "../../bin"
@@ -71,10 +71,10 @@ let formatting = __SOURCE_DIRECTORY__ @@ "../../packages/build/FSharp.Formatting
 let docTemplate = formatting @@ "templates/docpage.cshtml"
 
 // Where to look for *.csproj templates (in this order)
-let layoutRootsAll = new System.Collections.Generic.Dictionary<string, string list>()
+let layoutRootsAll = Dictionary<string, string list>()
 layoutRootsAll.Add("en",[ templates; formatting @@ "templates"
                           formatting @@ "templates/reference" ])
-subDirectories (directoryInfo templates)
+DirectoryInfo.getSubDirectories (DirectoryInfo.ofPath templates)
 |> Seq.iter (fun d ->
                 let name = d.Name
                 if name.Length = 2 || name.Length = 3 then
@@ -85,14 +85,14 @@ subDirectories (directoryInfo templates)
 
 // Copy static files and CSS + JS from F# Formatting
 let copyFiles () =
-  CopyRecursive files output true |> Log "Copying file: "
-  ensureDirectory (output @@ "content")
-  CopyRecursive (formatting @@ "styles") (output @@ "content") true
-    |> Log "Copying styles and scripts: "
+  Shell.copyRecursive files output true |> Trace.logItems "Copying file: "
+  Directory.ensure (output @@ "content")
+  Shell.copyRecursive (formatting @@ "styles") (output @@ "content") true
+  |> Trace.logItems "Copying styles and scripts: "
 
 // Build API reference from XML comments
 let buildReference () =
-  CleanDir (output @@ "reference")
+  Shell.cleanDir (output @@ "reference")
   let binaries =
     referenceBinaries
     |> List.map (fun lib-> bin @@ lib)
@@ -108,10 +108,10 @@ let buildDocumentation () =
   !!(completion @@ "*.*.md")
   |> Seq.iter (fun f ->
     let target =
-      let name = filename f
+      let name = Path.GetFileName f
       name.Replace("README", "shell-completion")
 
-    CopyFile (content @@ target) f
+    Shell.copyFile (content @@ target) f
   )
 
   let subdirs = Directory.EnumerateDirectories(content, "*", SearchOption.AllDirectories)
